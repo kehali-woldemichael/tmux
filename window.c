@@ -338,7 +338,7 @@ window_destroy(struct window *w)
 {
 	log_debug("window @%u destroyed (%d references)", w->id, w->references);
 
-	window_unzoom(w);
+	window_unzoom(w, 0);
 	RB_REMOVE(windows, &windows, w);
 
 	if (w->layout_root != NULL)
@@ -481,7 +481,7 @@ window_pane_update_focus(struct window_pane *wp)
 	struct client	*c;
 	int		 focused = 0;
 
-	if (wp != NULL) {
+	if (wp != NULL && (~wp->flags & PANE_EXITED)) {
 		if (wp != wp->window->active)
 			focused = 0;
 		else {
@@ -489,7 +489,8 @@ window_pane_update_focus(struct window_pane *wp)
 				if (c->session != NULL &&
 				    c->session->attached != 0 &&
 				    (c->flags & CLIENT_FOCUSED) &&
-				    c->session->curw->window == wp->window) {
+				    c->session->curw->window == wp->window &&
+				    c->overlay_draw == NULL) {
 					focused = 1;
 					break;
 				}
@@ -673,7 +674,7 @@ window_zoom(struct window_pane *wp)
 }
 
 int
-window_unzoom(struct window *w)
+window_unzoom(struct window *w, int notify)
 {
 	struct window_pane	*wp;
 
@@ -690,7 +691,9 @@ window_unzoom(struct window *w)
 		wp->saved_layout_cell = NULL;
 	}
 	layout_fix_panes(w, NULL);
-	notify_window("window-layout-changed", w);
+
+	if (notify)
+		notify_window("window-layout-changed", w);
 
 	return (0);
 }
@@ -704,7 +707,7 @@ window_push_zoom(struct window *w, int always, int flag)
 		w->flags |= WINDOW_WASZOOMED;
 	else
 		w->flags &= ~WINDOW_WASZOOMED;
-	return (window_unzoom(w) == 0);
+	return (window_unzoom(w, 1) == 0);
 }
 
 int
@@ -942,6 +945,9 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 
 	wp->pipe_fd = -1;
 
+	wp->control_bg = -1;
+	wp->control_fg = -1;
+
 	colour_palette_init(&wp->palette);
 	colour_palette_from_option(&wp->palette, wp->options);
 
@@ -1160,6 +1166,24 @@ window_pane_reset_mode_all(struct window_pane *wp)
 }
 
 static void
+window_pane_copy_paste(struct window_pane *wp, char *buf, size_t len)
+{
+ 	struct window_pane	*loop;
+
+	TAILQ_FOREACH(loop, &wp->window->panes, entry) {
+		if (loop != wp &&
+		    TAILQ_EMPTY(&loop->modes) &&
+		    loop->fd != -1 &&
+		    (~loop->flags & PANE_INPUTOFF) &&
+		    window_pane_visible(loop) &&
+		    options_get_number(loop->options, "synchronize-panes")) {
+			log_debug("%s: %.*s", __func__, (int)len, buf);
+			bufferevent_write(loop->event, buf, len);
+		}
+	}
+}
+
+static void
 window_pane_copy_key(struct window_pane *wp, key_code key)
 {
  	struct window_pane	*loop;
@@ -1173,6 +1197,22 @@ window_pane_copy_key(struct window_pane *wp, key_code key)
 		    options_get_number(loop->options, "synchronize-panes"))
 			input_key_pane(loop, key, NULL);
 	}
+}
+
+void
+window_pane_paste(struct window_pane *wp, char *buf, size_t len)
+{
+	if (!TAILQ_EMPTY(&wp->modes))
+		return;
+
+	if (wp->fd == -1 || wp->flags & PANE_INPUTOFF)
+		return;
+
+	log_debug("%s: %.*s", __func__, (int)len, buf);
+	bufferevent_write(wp->event, buf, len);
+
+	if (options_get_number(wp->options, "synchronize-panes"))
+		window_pane_copy_paste(wp, buf, len);
 }
 
 int
@@ -1212,6 +1252,12 @@ window_pane_visible(struct window_pane *wp)
 	if (~wp->window->flags & WINDOW_ZOOMED)
 		return (1);
 	return (wp == wp->window->active);
+}
+
+int
+window_pane_exited(struct window_pane *wp)
+{
+	return (wp->fd == -1 || (wp->flags & PANE_EXITED));
 }
 
 u_int
@@ -1651,13 +1697,17 @@ window_set_fill_character(struct window *w)
 void
 window_pane_default_cursor(struct window_pane *wp)
 {
-	struct screen	*s = wp->screen;
-	int		 c;
+	screen_set_default_cursor(wp->screen, wp->options);
+}
 
-	c = options_get_number(wp->options, "cursor-colour");
-	s->default_ccolour = c;
-
-	c = options_get_number(wp->options, "cursor-style");
-	s->default_mode = 0;
-	screen_set_cursor_style(c, &s->default_cstyle, &s->default_mode);
+int
+window_pane_mode(struct window_pane *wp)
+{
+	if (TAILQ_FIRST(&wp->modes) != NULL) {
+		if (TAILQ_FIRST(&wp->modes)->mode == &window_copy_mode)
+			return (WINDOW_PANE_COPY_MODE);
+		if (TAILQ_FIRST(&wp->modes)->mode == &window_view_mode)
+			return (WINDOW_PANE_VIEW_MODE);
+	}
+	return (WINDOW_PANE_NO_MODE);
 }

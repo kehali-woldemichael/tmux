@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016 Nicholas Marriott <nicholas.marriott@gmail.com>
+ * Copyright (c) 2024 Nicholas Marriott <nicholas.marriott@gmail.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,40 +14,18 @@
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <arpa/inet.h>
 #include <sys/types.h>
-
-#include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
 
 #include "compat.h"
 
-#if defined(HAVE_PRCTL) && defined(HAVE_PR_SET_NAME)
-
-#include <sys/prctl.h>
-
-void
-setproctitle(const char *fmt, ...)
+uint64_t
+ntohll(uint64_t v)
 {
-	char	title[16], name[16], *cp;
-	va_list	ap;
-	int	used;
+    uint32_t b;
+    uint32_t t;
 
-	va_start(ap, fmt);
-	vsnprintf(title, sizeof title, fmt, ap);
-	va_end(ap);
-
-	used = snprintf(name, sizeof name, "%s: %s", getprogname(), title);
-	if (used >= (int)sizeof name) {
-		cp = strrchr(name, ' ');
-		if (cp != NULL)
-			*cp = '\0';
-	}
-	prctl(PR_SET_NAME, name);
+    b = ntohl (v & 0xffffffff);
+    t = ntohl (v >> 32);
+    return ((uint64_t)b << 32 | t);
 }
-#else
-void
-setproctitle(__unused const char *fmt, ...)
-{
-}
-#endif

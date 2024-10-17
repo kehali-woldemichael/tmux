@@ -222,7 +222,7 @@ make_label(const char *label, char **cause)
 		xasprintf(cause, "%s is not a directory", base);
 		goto fail;
 	}
-	if (sb.st_uid != uid || (sb.st_mode & S_IRWXO) != 0) {
+	if (sb.st_uid != uid || (sb.st_mode & TMUX_SOCK_PERM) != 0) {
 		xasprintf(cause, "directory %s has unsafe permissions", base);
 		goto fail;
 	}
@@ -233,6 +233,24 @@ make_label(const char *label, char **cause)
 fail:
 	free(base);
 	return (NULL);
+}
+
+char *
+shell_argv0(const char *shell, int is_login)
+{
+	const char	*slash, *name;
+	char		*argv0;
+
+	slash = strrchr(shell, '/');
+	if (slash != NULL && slash[1] != '\0')
+		name = slash + 1;
+	else
+		name = shell;
+	if (is_login)
+		xasprintf(&argv0, "-%s", name);
+	else
+		xasprintf(&argv0, "%s", name);
+	return (argv0);
 }
 
 void
@@ -390,9 +408,9 @@ main(int argc, char **argv)
 			cfg_files[cfg_nfiles++] = xstrdup(optarg);
 			cfg_quiet = 0;
 			break;
- 		case 'V':
+		case 'V':
 			printf("tmux %s\n", getversion());
- 			exit(0);
+			exit(0);
 		case 'l':
 			flags |= CLIENT_LOGIN;
 			break;

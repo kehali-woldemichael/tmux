@@ -289,6 +289,11 @@ void		 explicit_bzero(void *, size_t);
 int		 getdtablecount(void);
 #endif
 
+#ifndef HAVE_GETDTABLESIZE
+/* getdtablesize.c */
+int		 getdtablesize(void);
+#endif
+
 #ifndef HAVE_CLOSEFROM
 /* closefrom.c */
 void		 closefrom(int);
@@ -332,6 +337,18 @@ char		*strndup(const char *, size_t);
 #ifndef HAVE_MEMMEM
 /* memmem.c */
 void		*memmem(const void *, size_t, const void *, size_t);
+#endif
+
+#ifndef HAVE_HTONLL
+/* htonll.c */
+#undef htonll
+uint64_t	 htonll(uint64_t);
+#endif
+
+#ifndef HAVE_NTOHLL
+/* ntohll.c */
+#undef ntohll
+uint64_t	 ntohll(uint64_t);
 #endif
 
 #ifndef HAVE_GETPEEREID

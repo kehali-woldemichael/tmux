@@ -1,6 +1,6 @@
 # configure.ac
 
-AC_INIT([tmux], next-3.4)
+AC_INIT([tmux], next-3.6)
 AC_PREREQ([2.60])
 
 AC_CONFIG_AUX_DIR(etc)
@@ -56,10 +56,11 @@ AC_USE_SYSTEM_EXTENSIONS
 test "$sysconfdir" = '${prefix}/etc' && sysconfdir=/etc
 
 # Is this --enable-debug?
-case "x$VERSION" in xnext*) enable_debug=yes;; esac
 AC_ARG_ENABLE(
 	debug,
 	AS_HELP_STRING(--enable-debug, enable debug build flags),
+	,
+	[case "x$VERSION" in xnext*) enable_debug=yes;; esac]
 )
 AM_CONDITIONAL(IS_DEBUG, test "x$enable_debug" = xyes)
 
@@ -148,7 +149,7 @@ AC_CHECK_FUNCS([ \
 	prctl \
 	proc_pidinfo \
 	getpeerucred \
-	sysconf \
+	sysconf
 ])
 
 # Check for functions with a compatibility implementation.
@@ -165,7 +166,9 @@ AC_REPLACE_FUNCS([ \
 	getpeereid \
 	getline \
 	getprogname \
+	htonll \
 	memmem \
+	ntohll \
 	setenv \
 	setproctitle \
 	strcasestr \
@@ -546,6 +549,24 @@ if test "x$found_malloc_trim" = xyes; then
 	AC_DEFINE(HAVE_MALLOC_TRIM)
 fi
 
+# Build against jemalloc if requested.
+AC_ARG_ENABLE(
+	jemalloc,
+	AS_HELP_STRING(--enable-jemalloc, use jemalloc if it is installed)
+)
+if test "x$enable_jemalloc" = xyes; then
+	PKG_CHECK_MODULES(
+		JEMALLOC,
+		jemalloc,
+		[
+			AM_CPPFLAGS="$JEMALLOC_CFLAGS $AM_CPPFLAGS"
+			CPPFLAGS="$AM_CPPFLAGS $SAVED_CPPFLAGS"
+			LIBS="$LIBS $JEMALLOC_LIBS"
+		],
+		AC_MSG_ERROR("jemalloc not found")
+	)
+fi
+
 # Check for CMSG_DATA. On some platforms like HP-UX this requires UNIX 95
 # (_XOPEN_SOURCE and _XOPEN_SOURCE_EXTENDED) (see xopen_networking(7)). On
 # others, UNIX 03 (_XOPEN_SOURCE 600, see standards(7) on Solaris).
@@ -924,8 +945,13 @@ case "$host_os" in
 				MANFORMAT=mdoc
 				;;
 			*)
-				# Solaris 2.0 to 11.3 use AT&T nroff.
-				MANFORMAT=man
+				if test `uname -o 2>/dev/null` = illumos; then
+					# Illumos uses mandoc.
+					MANFORMAT=mdoc
+				else
+					# Solaris 2.0 to 11.3 use AT&T nroff.
+					MANFORMAT=man
+				fi
 				;;
 		esac
 		;;
@@ -956,6 +982,7 @@ AM_CONDITIONAL(IS_NETBSD, test "x$PLATFORM" = xnetbsd)
 AM_CONDITIONAL(IS_OPENBSD, test "x$PLATFORM" = xopenbsd)
 AM_CONDITIONAL(IS_SUNOS, test "x$PLATFORM" = xsunos)
 AM_CONDITIONAL(IS_HPUX, test "x$PLATFORM" = xhpux)
+AM_CONDITIONAL(IS_CYGWIN, test "x$PLATFORM" = xcygwin)
 AM_CONDITIONAL(IS_HAIKU, test "x$PLATFORM" = xhaiku)
 AM_CONDITIONAL(IS_UNKNOWN, test "x$PLATFORM" = xunknown)
 
